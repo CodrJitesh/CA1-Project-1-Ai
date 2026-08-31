@@ -9,16 +9,17 @@ notebook can show that real tool calls happened (proof it is an agent, not a
 chatbot).
 
 Two lanes, same loop:
-  * "llm"  - an LLM (GitHub Models) does the deciding via function-calling.
+  * "llm"  - an LLM does the deciding via function-calling. The provider is
+             resolved by budget_agent.lanes (same setup as the cse476-agentic-ai
+             course repo): PROVIDER in .env, default Groq.
   * "rule" - a deterministic planner does the deciding. No API key needed, so
              the demo notebook always runs.
-`mode="auto"` uses the LLM when GITHUB_TOKEN is set and the openai package is
-importable, otherwise it falls back to the rule planner.
+`mode="auto"` uses the LLM when a lane is configured (e.g. GROQ_API_KEY set),
+otherwise it falls back to the rule planner.
 """
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 
@@ -126,11 +127,12 @@ def _wants_summary(text: str) -> bool:
 
 _SYSTEM_PROMPT = (
     "You are a personal budget assistant. You help a student track a monthly "
-    "budget. Use the tools to record expenses and to look up totals before you "
-    "answer questions about balance or whether they can afford something. "
-    "Think step by step; call a tool, read its result, then decide the next "
-    "step. Only give a final answer once the tools give you the numbers you "
-    "need. Keep answers short and concrete."
+    "budget. Record every expense the user mentions with add_expense. Before "
+    "answering ANY question about totals, balance, or whether they can afford "
+    "something, you MUST call get_summary first and base your answer on its "
+    "numbers - do not answer from the memory line alone, even if you think you "
+    "know the figure. Think step by step: call a tool, read its result, then "
+    "decide the next step. Keep answers short and concrete."
 )
 
 
@@ -145,13 +147,12 @@ class Agent:
     def _resolve_mode(mode: str) -> str:
         if mode != "auto":
             return mode
-        if os.environ.get("GITHUB_TOKEN"):
-            try:
-                import openai  # noqa: F401
-                return "llm"
-            except ImportError:
-                return "rule"
-        return "rule"
+        try:
+            from .lanes import get_client
+            get_client()  # raises LaneError if no lane is configured
+            return "llm"
+        except Exception:
+            return "rule"
 
     # -- public ---------------------------------------------------------
     def run(self, goal: str) -> Result:
@@ -269,13 +270,10 @@ class Agent:
     def _run_llm(self, goal: str, trace: list[dict], step: int) -> str:
         import json
 
-        import openai
+        from .lanes import get_client, get_model
 
-        base_url = os.environ.get("GITHUB_MODELS_BASE_URL",
-                                  "https://models.github.ai/inference")
-        model = os.environ.get("GITHUB_MODELS_MODEL", "openai/gpt-4o-mini")
-        client = openai.OpenAI(base_url=base_url,
-                               api_key=os.environ["GITHUB_TOKEN"])
+        client = get_client()
+        model = get_model()
 
         messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
         for t in self.memory.recent_turns(8)[:-1]:  # prior context, not this goal

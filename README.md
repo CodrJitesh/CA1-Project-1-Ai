@@ -17,9 +17,12 @@ top-to-bottom to see the multi-step traces — it needs no API key.
 
 The agent only ever touches the data through these two functions — it never
 writes totals itself. The loop has two lanes behind one implementation:
-`mode="rule"` (deterministic planner, used by the notebook) and `mode="llm"`
-(an LLM on GitHub Models does the deciding via function-calling, if `GITHUB_TOKEN`
-is set). `mode="auto"` picks automatically.
+`mode="rule"` (deterministic planner, no key, used by the notebook) and
+`mode="llm"` (an LLM does the deciding via function-calling). The LLM provider is
+resolved by `budget_agent/lanes.py` — the **same lane setup as the
+`cse476-agentic-ai` course repo**: set `PROVIDER` and a key in `.env`, default is
+**Groq** (`openai/gpt-oss-20b`). `mode="auto"` uses the LLM if a lane is
+configured, else falls back to `rule`.
 
 ## What the memory does
 
@@ -50,15 +53,22 @@ missed — but every example in the demo notebook parses correctly.
 ## How to run
 
 ```bash
-pip install -r requirements.txt        # only needed for the optional LLM lane
+pip install -r requirements.txt
 jupyter nbconvert --to notebook --execute --inplace demo.ipynb   # or open in Jupyter
+```
+
+The rule lane needs nothing. For the LLM lane, copy `.env.example` to `.env` and
+paste a free Groq key from console.groq.com/keys:
+
+```bash
+cp .env.example .env      # then edit GROQ_API_KEY=...
 ```
 
 Programmatic use:
 
 ```python
 from budget_agent import Agent
-agent = Agent(mode="rule")                     # one instance = one conversation
+agent = Agent(mode="auto")                     # "llm" if .env has a lane, else "rule"
 agent.run("My budget is 15000. Spent 250 on lunch and 400 on a cab.")
 print(agent.run("Can I afford a 2000 trip?").answer)
 ```
