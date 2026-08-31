@@ -1,0 +1,6 @@
+# Core agent + rule lane + notebook: standard library only.
+# The following are needed only for the optional LLM lane (mode="llm") and to
+# execute the notebook headless.
+openai>=1.30
+jupyter>=1.0
+nbconvert>=7.0
