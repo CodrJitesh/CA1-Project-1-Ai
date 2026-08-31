@@ -1,7 +1,8 @@
 # Core agent + rule lane + notebook: standard library only.
-# The following are needed only for the LLM lane (mode="llm") and to
-# execute the notebook headless.
+# openai is required only for the LLM lane (mode="llm").
 openai>=2.0.0
+# python-dotenv is optional: lanes.py has a built-in .env parser as a fallback.
 python-dotenv>=1.0.1
+# needed only to execute the notebook headless.
 jupyter>=1.0
 nbconvert>=7.0

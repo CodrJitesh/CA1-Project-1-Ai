@@ -18,11 +18,33 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
-from dotenv import load_dotenv
-from openai import OpenAI
 
-load_dotenv()
+def _load_env() -> None:
+    """Load .env. Uses python-dotenv if installed; otherwise a tiny built-in
+    parser so the LLM lane still works without the extra package."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        return
+    except ModuleNotFoundError:
+        pass
+    for base in (Path.cwd(), Path(__file__).resolve().parent.parent):
+        env = base / ".env"
+        if not env.is_file():
+            continue
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(),
+                                  val.strip().strip('"').strip("'"))
+        return
+
+
+_load_env()
 
 
 class LaneError(RuntimeError):
@@ -117,8 +139,17 @@ def get_model(provider: str | None = None) -> str:
     return override
 
 
-def get_client(provider: str | None = None) -> OpenAI:
+def get_client(provider: str | None = None):
     """Return a configured OpenAI-compatible client for the active lane."""
+    try:
+        from openai import OpenAI
+    except ModuleNotFoundError as exc:
+        raise LaneError(
+            "The 'openai' package is required for the LLM lane but is not "
+            "installed.\nFix: pip install -r requirements.txt  (or run the "
+            "server with the project venv:  .venv/bin/python frontend/server.py)"
+        ) from exc
+
     lane = _lane(provider)
 
     if lane.key == "foundry":
