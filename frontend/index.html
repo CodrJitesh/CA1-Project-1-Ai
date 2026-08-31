@@ -72,12 +72,32 @@
   .rowbtns button { flex: 1; background: var(--panel2); border: 1px solid var(--line);
     color: var(--dim); border-radius: 8px; padding: 7px; cursor: pointer; font-size: 12px; }
   .rowbtns button:hover { color: var(--ink); border-color: var(--accent); }
+
+  header .spacer { flex: 1; }
+  .modes { display: flex; align-items: center; gap: 0; border: 1px solid var(--line);
+    border-radius: 9px; overflow: hidden; }
+  .modes button { background: var(--panel2); color: var(--dim); border: none;
+    border-right: 1px solid var(--line); padding: 7px 13px; font-size: 12px;
+    font-weight: 600; cursor: pointer; }
+  .modes button:last-child { border-right: none; }
+  .modes button:hover { color: var(--ink); }
+  .modes button.active { background: var(--accent); color: #08111f; }
+  .modes button:disabled { cursor: default; opacity: .6; }
+  .modehint { font-size: 11px; color: var(--dim); margin-left: 10px; max-width: 320px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
 <header>
   <h1>Personal Budget Assistant</h1>
-  <span class="lane">lane: <b id="lane">…</b> · an agent (tools + plan-act loop + memory), not a chatbot</span>
+  <span class="lane">an agent (tools + plan-act loop + memory), not a chatbot</span>
+  <span class="spacer"></span>
+  <span class="modehint" id="modehint"></span>
+  <div class="modes" id="modes">
+    <button data-mode="rule" title="Deterministic planner. No API key.">rule</button>
+    <button data-mode="auto" title="LLM if .env is configured, else rule.">auto</button>
+    <button data-mode="llm"  title="LLM decides every step via function-calling (Groq).">llm</button>
+  </div>
 </header>
 
 <div class="wrap">
@@ -154,7 +174,13 @@ function renderTrace(trace){
 }
 
 function renderState(st){
-  $('#lane').textContent = st.mode;
+  document.querySelectorAll('#modes button').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === (st.requested || st.mode));
+  });
+  if(st.requested && st.requested !== st.mode)
+    $('#modehint').textContent = `resolved to "${st.mode}"`;
+  else if(!$('#modehint').textContent)
+    $('#modehint').textContent = '';
   $('#s-budget').textContent = fmt(st.budget);
   $('#s-spent').textContent = fmt(st.total_spent);
   const bal = $('#s-balance');
@@ -193,6 +219,26 @@ $('#reset').onclick = async () => {
   addMsg('sys', 'conversation reset — memory cleared');
   renderState(res.state);
 };
+
+async function setMode(mode){
+  const btns = document.querySelectorAll('#modes button');
+  btns.forEach(b => b.disabled = true);
+  $('#modehint').textContent = 'switching…';
+  const res = await api('/api/mode', {mode});
+  btns.forEach(b => b.disabled = false);
+  if(res.error){ $('#modehint').textContent = res.error; return; }
+  log.innerHTML = '';
+  const resolved = res.state.mode;
+  let line = `lane set to "${mode}"` + (mode !== resolved ? ` → running "${resolved}"` : '');
+  if(res.note) line += `  ·  ${res.note}`;
+  addMsg('sys', line + '  (conversation reset)');
+  $('#modehint').textContent = res.note || (mode !== resolved ? `resolved to "${resolved}"` : '');
+  renderState(res.state);
+}
+
+document.querySelectorAll('#modes button').forEach(b => {
+  b.onclick = () => setMode(b.dataset.mode);
+});
 
 async function loadScenarios(){
   const {scenarios} = await api('/api/scenarios');

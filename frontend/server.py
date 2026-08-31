@@ -25,8 +25,9 @@ from budget_agent import Agent  # noqa: E402
 from budget_agent.seeds import SCENARIOS  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-MODE = os.environ.get("AGENT_MODE", "rule")
+MODE = os.environ.get("AGENT_MODE", "rule")  # requested mode: rule | llm | auto
 PORT = int(os.environ.get("PORT", "8000"))
+VALID_MODES = ("rule", "llm", "auto")
 
 _lock = threading.Lock()
 _agent = Agent(mode=MODE)
@@ -38,10 +39,32 @@ def _new_agent() -> Agent:
     return _agent
 
 
+def _lane_check() -> str:
+    """Empty string if the LLM lane is usable, else a short reason why not."""
+    try:
+        from budget_agent.lanes import describe, get_client
+        get_client()
+        return describe()
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+
+
+def _set_mode(requested: str) -> dict:
+    global MODE
+    requested = (requested or "").strip().lower()
+    if requested not in VALID_MODES:
+        return {"error": f"unknown mode {requested!r} (use rule|llm|auto)"}
+    note = _lane_check() if requested in ("llm", "auto") else ""
+    MODE = requested
+    _new_agent()
+    return {"state": _state(), "note": note}
+
+
 def _state() -> dict:
     m = _agent.memory
     return {
-        "mode": _agent.mode,
+        "requested": MODE,        # what the user picked (rule|llm|auto)
+        "mode": _agent.mode,      # what it resolved to (rule|llm)
         "budget": m.monthly_budget,
         "total_spent": m.total_spent("all"),
         "balance": m.balance(),
@@ -120,6 +143,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"state": _state()})
                 elif self.path == "/api/seed":
                     self._json(_seed(payload.get("key", "")))
+                elif self.path == "/api/mode":
+                    self._json(_set_mode(payload.get("mode", "")))
                 else:
                     self._json({"error": "not found"}, 404)
             except Exception as exc:  # surface agent/LLM errors to the page
@@ -129,7 +154,8 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Budget Agent frontend  ->  http://127.0.0.1:{PORT}")
-    print(f"lane: {_agent.mode}   (set AGENT_MODE=rule|llm|auto to change)")
+    print(f"lane: {_agent.mode}   (switch it live with the rule/auto/llm "
+          f"buttons in the page header)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

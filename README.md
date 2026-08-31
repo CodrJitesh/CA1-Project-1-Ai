@@ -78,10 +78,13 @@ print(agent.run("Can I afford a 2000 trip?").answer)
 A tiny standard-library server + chat page. Left: the conversation with an
 expandable **trace** under each answer (the tool calls + steps). Right: live
 memory state and one-click **seed conversations** from `budget_agent/seeds.py`.
+Header: **rule / auto / llm** buttons that switch the agent's lane live (each
+switch resets the conversation). `auto`/`llm` need `.env` + the deps installed.
 
 ```bash
-python3 frontend/server.py                 # rule lane, no key
-AGENT_MODE=llm .venv/bin/python frontend/server.py   # Groq lane (needs .env + deps)
+python3 frontend/server.py                 # starts on the rule lane
+.venv/bin/python frontend/server.py        # so the llm button can reach Groq
+AGENT_MODE=llm .venv/bin/python frontend/server.py   # start already on llm
 ```
 
 Open http://127.0.0.1:8000 and click a seed scenario, or type your own messages.
