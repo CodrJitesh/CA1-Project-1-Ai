@@ -72,3 +72,18 @@ agent = Agent(mode="auto")                     # "llm" if .env has a lane, else 
 agent.run("My budget is 15000. Spent 250 on lunch and 400 on a cab.")
 print(agent.run("Can I afford a 2000 trip?").answer)
 ```
+
+## Web frontend (for a quick demo)
+
+A tiny standard-library server + chat page. Left: the conversation with an
+expandable **trace** under each answer (the tool calls + steps). Right: live
+memory state and one-click **seed conversations** from `budget_agent/seeds.py`.
+
+```bash
+python3 frontend/server.py                 # rule lane, no key
+AGENT_MODE=llm .venv/bin/python frontend/server.py   # Groq lane (needs .env + deps)
+```
+
+Open http://127.0.0.1:8000 and click a seed scenario, or type your own messages.
+Seed scenarios: `student_month` (flagship), `tight_budget` (answer is no),
+`asks_for_missing_info` (agent asks instead of guessing), `category_leak`.

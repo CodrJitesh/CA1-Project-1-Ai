@@ -58,13 +58,25 @@ def _to_float(s: str) -> float:
     return float(s.replace(",", ""))
 
 
+# "budget ... <number>" with a few filler words allowed in between
+# ("budget is 4000", "budget of 8000", "my budget this month is 20000").
+_BUDGET_RE = re.compile(rf"budget\b[^\d]{{0,25}}?{_NUM}", re.I)
+_INCOME_RE = re.compile(
+    rf"i\s+(?:have|get|earn|make)\s*(?:rs\.?|inr|\$)?\s*{_NUM}\s*"
+    rf"(?:per month|a month|monthly|/month)", re.I)
+
+
 def _find_budget(text: str) -> float | None:
-    m = re.search(rf"budget\s*(?:is|of|=|:)?\s*(?:rs\.?|inr|\$)?\s*{_NUM}",
-                  text, re.I)
-    if not m:
-        m = re.search(rf"(?:i (?:have|get|earn|make))\s*(?:rs\.?|inr|\$)?\s*"
-                      rf"{_NUM}\s*(?:per month|a month|monthly|/month)", text, re.I)
+    m = _BUDGET_RE.search(text) or _INCOME_RE.search(text)
     return _to_float(m.group(1)) if m else None
+
+
+def _strip_budget_clause(text: str) -> str:
+    """Remove the budget-setting phrase so its number is not also parsed as an
+    expense ('Budget is 4000 for the month' must not log a 4000 expense)."""
+    text = _BUDGET_RE.sub(" ", text)
+    text = _INCOME_RE.sub(" ", text)
+    return text
 
 
 _ARTICLES = ("a ", "an ", "the ", "some ", "my ")
@@ -163,8 +175,10 @@ class Agent:
         # Memory write: pick up a stated budget before planning. This is memory,
         # not a tool - it is what a later turn will read back.
         budget = _find_budget(goal)
+        budget_set = False
         if budget is not None and self.memory.monthly_budget != budget:
             self.memory.monthly_budget = budget
+            budget_set = True
             step += 1
             trace.append({"step": step, "action": "memory",
                           "observation": f"stored monthly_budget = {budget:.0f}"})
@@ -172,16 +186,18 @@ class Agent:
         if self.mode == "llm":
             answer = self._run_llm(goal, trace, step)
         else:
-            answer = self._run_rule(goal, trace, step)
+            answer = self._run_rule(goal, trace, step, budget_set)
 
         self.memory.add_turn("agent", answer)
         return Result(answer=answer, trace=trace)
 
     # -- rule lane ----------------------------------------------------
-    def _run_rule(self, goal: str, trace: list[dict], step: int) -> str:
+    def _run_rule(self, goal: str, trace: list[dict], step: int,
+                  budget_set: bool = False) -> str:
         # Build the plan from the goal, then execute it one step per loop,
-        # deciding the next step from what the tools returned.
-        todo_expenses = _find_expenses(goal)
+        # deciding the next step from what the tools returned. The budget clause
+        # is stripped first so "budget is 4000" never logs a 4000 expense.
+        todo_expenses = _find_expenses(_strip_budget_clause(goal))
         afford_amt = _find_afford_amount(goal)
         need_summary = afford_amt is not None or _wants_summary(goal)
 
@@ -219,13 +235,13 @@ class Agent:
             break
 
         answer = self._compose_rule_answer(goal, todo_expenses, afford_amt,
-                                           need_summary, summary_obs)
+                                           need_summary, summary_obs, budget_set)
         step += 1
         trace.append({"step": step, "action": "final", "thought": answer})
         return answer
 
     def _compose_rule_answer(self, goal, todo_expenses, afford_amt,
-                             need_summary, summary_obs) -> str:
+                             need_summary, summary_obs, budget_set=False) -> str:
         mem = self.memory
 
         # Affordability: decide from the balance the tool just gave back.
@@ -260,8 +276,16 @@ class Agent:
         # Pure logging turn.
         if todo_expenses:
             n = len(todo_expenses)
-            return ("Logged {} expense{} ({:.0f} total this session)."
-                    .format(n, "" if n == 1 else "s", mem.total_spent('all')))
+            msg = ("Logged {} expense{} ({:.0f} total this session)."
+                   .format(n, "" if n == 1 else "s", mem.total_spent('all')))
+            if mem.balance() is not None:
+                msg += f" Balance: {mem.balance():.0f} of {mem.monthly_budget:.0f}."
+            return msg
+
+        # Budget was set and nothing else to do this turn.
+        if budget_set:
+            return (f"Got it - monthly budget set to {mem.monthly_budget:.0f}. "
+                    f"Tell me what you spend and I'll track it.")
 
         return ("I can log expenses and summarise your spending. Try: "
                 "'spent 250 on lunch' or 'can I afford a 2000 trip?'.")
